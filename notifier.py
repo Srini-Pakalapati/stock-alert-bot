@@ -1,6 +1,7 @@
 """Telegram delivery. One free HTTPS POST per alert, no templates/approval needed."""
 from __future__ import annotations
 
+import html
 import logging
 import os
 
@@ -14,7 +15,7 @@ TELEGRAM_API = "https://api.telegram.org/bot{token}/sendMessage"
 
 NEWS_TYPE_EMOJI = {"positive": "🟢", "negative": "🔴", "neutral": "🟡"}
 
-DISCLAIMER = "(Heads-up only, not investment advice — see README)"
+DISCLAIMER = "Disclaimer: For information only, not investment advice."
 
 
 def _format_market_cap(value: float | None) -> str | None:
@@ -40,13 +41,22 @@ def _format_52w_position(price: float | None, low: float | None, high: float | N
     return f"{position_pct:.0f}% of 52-week range (low ${low:.2f}, high ${high:.2f})"
 
 
+def _source_line(link: str | None) -> str | None:
+    """Render a source link as a short clickable "Read more" instead of the
+    raw URL -- Google News RSS links in particular are long opaque redirect
+    URLs that would otherwise dominate the message."""
+    if not link:
+        return None
+    return f'Source: <a href="{html.escape(link)}">Read more</a>'
+
+
 def format_price_alert(
     mover: dict,
     news_context: dict | None,
     fundamentals: dict | None,
     source_link: str | None = None,
 ) -> str:
-    """Build the Telegram message text for a price-move alert.
+    """Build the Telegram message text (HTML-formatted) for a price-move alert.
 
     Args:
         mover: one entry from movers.get_movers(), e.g.
@@ -59,8 +69,9 @@ def format_price_alert(
 
     Returns:
         The full multi-line message text, including the standing disclaimer.
+        All dynamic text is HTML-escaped; send() uses Telegram's HTML parse mode.
     """
-    ticker = mover["ticker"]
+    ticker = html.escape(mover["ticker"])
     pct = mover["pct_change"]
     session = mover["session"]
     emoji = "🟢" if pct > 0 else "🔴"
@@ -81,13 +92,14 @@ def format_price_alert(
     if news_context:
         nt = news_context.get("news_type", "n/a")
         score = news_context.get("signal_score", "n/a")
-        reasoning = news_context.get("reasoning", "")
+        reasoning = html.escape(news_context.get("reasoning", ""))
         lines.append(f"News type: {nt.capitalize() if nt != 'n/a' else 'n/a'}")
         lines.append(f"Signal score: {score}/10")
         if reasoning:
             lines.append(f"Why: {reasoning}")
-        if source_link:
-            lines.append(f"Source: {source_link}")
+        source = _source_line(source_link)
+        if source:
+            lines.append(source)
     else:
         lines.append("News type: n/a (price move only, no matching headline)")
 
@@ -96,7 +108,12 @@ def format_price_alert(
 
 
 def format_news_alert(headline: dict, analysis: dict) -> str:
-    """Build the Telegram message text for a news-only "potential mover" alert.
+    """Build the Telegram message text (HTML-formatted) for a news-only alert.
+
+    Broad market-wide headlines (e.g. "Wall Street rallies") often don't name
+    a specific company -- analyzer.py returns `ticker: null` for those, and
+    this is labeled "Market-wide news" rather than "Potential mover: Unknown"
+    so it reads correctly instead of looking like a parsing failure.
 
     Args:
         headline: one entry from news.get_general_headlines() /
@@ -105,20 +122,24 @@ def format_news_alert(headline: dict, analysis: dict) -> str:
 
     Returns:
         The full multi-line message text, including the standing disclaimer.
+        All dynamic text is HTML-escaped; send() uses Telegram's HTML parse mode.
     """
-    ticker = analysis.get("ticker") or "Unknown"
+    ticker = analysis.get("ticker")
     nt = analysis.get("news_type", "neutral")
     emoji = NEWS_TYPE_EMOJI.get(nt, "🟡")
+    header = f"{emoji} Potential mover: {html.escape(ticker)}" if ticker else f"{emoji} Market-wide news"
+
     lines = [
-        f"{emoji} Potential mover: {ticker}",
-        f'Headline: "{headline["title"]}"',
+        header,
+        f'Headline: "{html.escape(headline["title"])}"',
         f"News type: {nt.capitalize()}",
         f"Signal score: {analysis.get('signal_score', 'n/a')}/10  "
         f"(confidence {analysis.get('confidence', 'n/a')})",
-        f"Why: {analysis.get('reasoning', '')}",
+        f"Why: {html.escape(analysis.get('reasoning', ''))}",
     ]
-    if headline.get("link"):
-        lines.append(f"Source: {headline['link']}")
+    source = _source_line(headline.get("link"))
+    if source:
+        lines.append(source)
     lines.append(DISCLAIMER)
     return "\n".join(lines)
 
@@ -127,7 +148,7 @@ def send(message: str, dry_run: bool = False) -> None:
     """Send (or print) one alert message.
 
     Args:
-        message: the full message text, e.g. from format_price_alert().
+        message: the full HTML-formatted message text, e.g. from format_price_alert().
         dry_run: if True, print to stdout instead of calling the Telegram API
             -- used for local testing without needing real credentials.
     """
@@ -141,7 +162,7 @@ def send(message: str, dry_run: bool = False) -> None:
     chat_id = os.environ["TELEGRAM_CHAT_ID"]
     resp = requests.post(
         TELEGRAM_API.format(token=token),
-        json={"chat_id": chat_id, "text": message},
+        json={"chat_id": chat_id, "text": message, "parse_mode": "HTML"},
         timeout=15,
     )
     if not resp.ok:
