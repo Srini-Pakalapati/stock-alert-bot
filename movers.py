@@ -15,7 +15,20 @@ log = logging.getLogger(__name__)
 
 
 def get_movers() -> list[dict]:
-    """Returns a deduped list of {ticker, pct_change, session, price, prev_close}."""
+    """Find tickers currently moving beyond config's thresholds.
+
+    Queries Yahoo Finance's day_gainers/day_losers/most_actives screeners
+    (config.SCREENER_QUERIES) for the regular session, then layers on
+    pre-market/after-hours movers via _add_extended_hours_movers(). There is
+    no fixed watchlist -- whatever the screeners surface and clears the
+    relevant threshold is included.
+
+    Returns:
+        A deduped list of dicts, each shaped like:
+        {"ticker": "RGTI", "pct_change": -7.2, "session": "regular",
+         "price": 12.34, "prev_close": 13.30}
+        `session` is one of "regular", "pre-market", "after-hours".
+    """
     movers: dict[str, dict] = {}
 
     for query in config.SCREENER_QUERIES:
@@ -45,8 +58,20 @@ def get_movers() -> list[dict]:
 
 
 def _add_extended_hours_movers(movers: dict[str, dict]) -> None:
-    """Best-effort: scan the same screener tickers' info dicts for pre/post-market
-    change fields. yfinance/Yahoo field names here are not guaranteed stable."""
+    """Add pre-market/after-hours movers to `movers`, mutating it in place.
+
+    For each ticker already found by the regular-session screeners, checks
+    its Yahoo `info` dict for pre/post-market change percentages and adds an
+    entry (keyed "TICKER:pre" / "TICKER:post" to avoid clobbering the regular
+    session's entry) if the move clears config.EXTENDED_HOURS_MOVE_PCT. This
+    is how a case like "INTC up 10% after-hours" gets caught even though the
+    regular-session screener wouldn't reflect it.
+
+    Best-effort: any ticker that fails to fetch is silently skipped. Note:
+    Yahoo's postMarketChangePercent/preMarketChangePercent are already plain
+    percent values (e.g. 0.6 means +0.6%), consistent with
+    regularMarketChangePercent -- do not multiply by 100.
+    """
     candidates = list(movers.keys())
     for ticker in candidates:
         try:
@@ -57,21 +82,19 @@ def _add_extended_hours_movers(movers: dict[str, dict]) -> None:
         post_pct = info.get("postMarketChangePercent")
         pre_pct = info.get("preMarketChangePercent")
 
-        if post_pct is not None and abs(post_pct * 100 if abs(post_pct) < 1 else post_pct) >= config.EXTENDED_HOURS_MOVE_PCT:
-            pct = post_pct * 100 if abs(post_pct) < 1 else post_pct
+        if post_pct is not None and abs(post_pct) >= config.EXTENDED_HOURS_MOVE_PCT:
             movers[f"{ticker}:post"] = {
                 "ticker": ticker,
-                "pct_change": round(pct, 2),
+                "pct_change": round(post_pct, 2),
                 "session": "after-hours",
                 "price": info.get("postMarketPrice"),
                 "prev_close": info.get("regularMarketPrice"),
             }
 
-        if pre_pct is not None and abs(pre_pct * 100 if abs(pre_pct) < 1 else pre_pct) >= config.EXTENDED_HOURS_MOVE_PCT:
-            pct = pre_pct * 100 if abs(pre_pct) < 1 else pre_pct
+        if pre_pct is not None and abs(pre_pct) >= config.EXTENDED_HOURS_MOVE_PCT:
             movers[f"{ticker}:pre"] = {
                 "ticker": ticker,
-                "pct_change": round(pct, 2),
+                "pct_change": round(pre_pct, 2),
                 "session": "pre-market",
                 "price": info.get("preMarketPrice"),
                 "prev_close": info.get("regularMarketPreviousClose"),
@@ -79,4 +102,6 @@ def _add_extended_hours_movers(movers: dict[str, dict]) -> None:
 
 
 def is_rebound_watch(pct_change: float) -> bool:
+    """True if a drop is at/beyond config.REBOUND_WATCH_PCT, worth flagging as a
+    "potential rebound watch" rather than just a plain decline."""
     return pct_change <= config.REBOUND_WATCH_PCT

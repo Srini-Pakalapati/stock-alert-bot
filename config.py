@@ -19,6 +19,13 @@ MIN_SIGNAL_SCORE_NEWS_ONLY = 6  # 1-10, bar for "potential mover" alerts with no
 SCREENER_QUERIES = ["day_gainers", "day_losers", "most_actives"]
 SCREENER_COUNT = 50  # results per screener query
 
+# On a volatile day, 100+ tickers can clear INTRADAY_MOVE_PCT. Processing all of
+# them (news + fundamentals + LLM call each) is what made a single run take
+# ~10 minutes against a 15-minute schedule. main.py sorts movers by the size of
+# their move (biggest absolute % change first) and only fully processes the top
+# MAX_MOVERS_PER_CYCLE; anything bumped this cycle is still picked up next cycle.
+MAX_MOVERS_PER_CYCLE = 20
+
 # --- Active windows (US/Eastern) ---
 # Pre-market 4:00-9:30, regular 9:30-16:00, after-hours 16:00-20:00. No weekends.
 PRE_MARKET_START = (4, 0)
@@ -26,7 +33,21 @@ AFTER_HOURS_END = (20, 0)
 
 
 def is_active_window(now: datetime | None = None) -> bool:
-    """True if `now` (Eastern) falls inside pre-market/regular/after-hours and is a weekday."""
+    """Check whether a scan should run right now.
+
+    Returns True if `now` (converted to US/Eastern) falls on a weekday and
+    within the pre-market/regular/after-hours trading window
+    (PRE_MARKET_START to AFTER_HOURS_END). Used by main.py to skip scans
+    outside trading hours, saving free-tier API quota and avoiding noise
+    overnight/on weekends.
+
+    Args:
+        now: the datetime to check; defaults to the current time. Passing
+            this explicitly is mainly useful for tests.
+
+    Returns:
+        True if a scan should run, False if it should be skipped.
+    """
     now = (now or datetime.now(EASTERN)).astimezone(EASTERN)
     if now.weekday() >= 5:  # Sat/Sun
         return False

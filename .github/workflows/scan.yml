@@ -16,6 +16,14 @@ on:
 permissions:
   contents: write
 
+# With the mover cap/batching fix a run should take well under a minute, but
+# this guards against any future run still in progress when the next 15-min
+# trigger fires -- runs queue instead of overlapping, avoiding a state.db git
+# push race between two simultaneous runs.
+concurrency:
+  group: stock-alert-scan
+  cancel-in-progress: false
+
 jobs:
   scan:
     runs-on: ubuntu-latest

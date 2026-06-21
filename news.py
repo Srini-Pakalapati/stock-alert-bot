@@ -18,6 +18,11 @@ _finnhub_client = None
 
 
 def _finnhub():
+    """Lazily build (and cache) a Finnhub client from FINNHUB_API_KEY.
+
+    Returns None if the env var isn't set, so callers can treat Finnhub as an
+    optional source rather than a hard dependency.
+    """
     global _finnhub_client
     if _finnhub_client is None:
         import finnhub
@@ -29,11 +34,25 @@ def _finnhub():
 
 
 def _normalize(title, link, source):
+    """Coerce a headline from any source into the common {title, link, source} shape."""
     return {"title": title.strip(), "link": link, "source": source}
 
 
 def get_general_headlines() -> list[dict]:
-    """Broad market headlines, not tied to a specific ticker."""
+    """Fetch broad market headlines, not tied to a specific ticker.
+
+    Combines Yahoo Finance's general news RSS, a Google News RSS search, and
+    Finnhub's general news endpoint (if FINNHUB_API_KEY is set). This breadth
+    matters for catching stories that never mention a ticker symbol at all --
+    e.g. a politician's statement about a company -- which a ticker-scoped
+    feed would miss entirely. Any one source failing is logged and skipped
+    rather than failing the whole call.
+
+    Returns:
+        A list of {"title": str, "link": str, "source": str} dicts. May
+        contain duplicates/near-duplicates across sources; dedup is handled
+        by the caller via state.headline_key().
+    """
     items = []
 
     try:
@@ -62,7 +81,20 @@ def get_general_headlines() -> list[dict]:
 
 
 def get_ticker_news(ticker: str) -> list[dict]:
-    """Recent news for a specific ticker, used to attach 'why' context to a price-move alert."""
+    """Fetch recent news for a specific ticker.
+
+    Combines yfinance's per-ticker news with Finnhub's company-news endpoint
+    (last 2 days, if FINNHUB_API_KEY is set). Used by main.py to attach a
+    "why" headline + link to a price-move alert. Any one source failing is
+    logged and skipped rather than failing the whole call.
+
+    Args:
+        ticker: stock ticker symbol, e.g. "RGTI".
+
+    Returns:
+        A list of {"title": str, "link": str, "source": str} dicts, most
+        recent first, capped at 10 per source.
+    """
     items = []
 
     try:
