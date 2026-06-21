@@ -37,6 +37,10 @@ jobs:
         run: |
           git config user.name "stock-alert-bot"
           git config user.email "actions@users.noreply.github.com"
-          git add state.db
-          git diff --cached --quiet || git commit -m "Update alert state [skip ci]"
-          git push
+          if [ -f state.db ]; then
+            git add state.db
+            git diff --cached --quiet || git commit -m "Update alert state [skip ci]"
+            git push
+          else
+            echo "No state.db yet (likely outside active trading window) - nothing to commit"
+          fi
