@@ -1,0 +1,7 @@
+yfinance>=0.2.40
+requests>=2.31
+feedparser>=6.0
+google-genai>=0.3
+groq>=0.9
+finnhub-python>=2.4
+python-dotenv>=1.0

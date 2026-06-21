@@ -1,0 +1,42 @@
+name: Stock Alert Scan
+
+on:
+  schedule:
+    # Every 15 min, Mon-Fri, all hours (UTC). main.py itself gates on actual
+    # US/Eastern pre-market/market/after-hours windows via config.is_active_window(),
+    # so DST is handled correctly in code rather than brittle UTC cron math.
+    - cron: "*/15 * * * 1-5"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run scan
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python main.py
+
+      - name: Commit updated state
+        run: |
+          git config user.name "stock-alert-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add state.db
+          git diff --cached --quiet || git commit -m "Update alert state [skip ci]"
+          git push
