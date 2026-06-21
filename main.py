@@ -70,13 +70,17 @@ def handle_general_news(dry_run: bool) -> None:
 
 
 def main() -> None:
+    import os
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true", help="print alerts instead of sending; also bypasses the active-hours gate")
+    parser.add_argument("--force", action="store_true", help="bypass the active-hours gate but still send real alerts (for manual test runs)")
     args = parser.parse_args()
+    force = args.force or os.environ.get("FORCE_RUN") == "true"
 
     logging.basicConfig(level=logging.INFO)
 
-    if not args.dry_run and not config.is_active_window():
+    if not args.dry_run and not force and not config.is_active_window():
         log.info("Outside active trading window; skipping run.")
         return
 

@@ -6,7 +6,12 @@ on:
     # US/Eastern pre-market/market/after-hours windows via config.is_active_window(),
     # so DST is handled correctly in code rather than brittle UTC cron math.
     - cron: "*/15 * * * 1-5"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Bypass the trading-hours gate (still sends real alerts) - use for manual test runs"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -31,6 +36,7 @@ jobs:
           FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          FORCE_RUN: ${{ inputs.force }}
         run: python main.py
 
       - name: Commit updated state
