@@ -15,9 +15,11 @@ REBOUND_WATCH_PCT = -5.0  # a drop at/beyond this also gets flagged as "potentia
 MIN_CONFIDENCE = 60          # 0-100, below this a news item is not alert-worthy
 MIN_SIGNAL_SCORE_NEWS_ONLY = 6  # 1-10, bar for "potential mover" alerts with no price move yet
 
-# Caps the number of new headlines batched into a single analyzer.analyze_batch()
-# call. A batch covering 60+ headlines risks the LLM response exceeding even a
-# generous max_tokens, truncating the JSON array mid-response (unparseable).
+# Max headlines per analyzer.analyze_batch() call. A single batch covering 60+
+# headlines risks the LLM response exceeding even a generous max_tokens,
+# truncating the JSON array mid-response. main.py processes new headlines in
+# sequential chunks of this size rather than dropping the excess, so nothing
+# is starved -- this only bounds each individual request's size.
 MAX_HEADLINES_PER_CYCLE = 30
 
 # --- Screener scope ---

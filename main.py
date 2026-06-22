@@ -78,9 +78,18 @@ def handle_general_news(dry_run: bool) -> None:
 
     Unlike handle_movers, this covers stories not yet reflected in any price
     move -- e.g. an indirect headline (a politician's statement about a
-    company) that hasn't moved the stock yet. All new headlines are batched
-    into a single LLM call; if both providers fail, items are left unmarked
-    in state so they're retried on the next cycle instead of being lost.
+    company) that hasn't moved the stock yet. New headlines are processed in
+    sequential batches of config.MAX_HEADLINES_PER_CYCLE rather than one
+    single call -- a request covering 60+ headlines risks the LLM's response
+    exceeding even a generous max_tokens, truncating the JSON mid-array. Doing
+    several smaller calls instead of capping/dropping the excess ensures every
+    new headline is covered every cycle, including ones from sources appended
+    later in news.get_general_headlines() (e.g. Finnhub), which a hard cap
+    would otherwise starve indefinitely as the same earlier sources keep
+    refreshing with new headlines each cycle.
+
+    If both providers fail for a given batch, that batch's items are left
+    unmarked in state so they're retried on the next cycle instead of being lost.
     """
     headlines = news.get_general_headlines()
     new_items = []
@@ -89,30 +98,23 @@ def handle_general_news(dry_run: bool) -> None:
         if not state.was_notified(key):
             new_items.append((key, h))
 
-    if not new_items:
-        return
+    for i in range(0, len(new_items), config.MAX_HEADLINES_PER_CYCLE):
+        batch = new_items[i : i + config.MAX_HEADLINES_PER_CYCLE]
+        batch_input = [{"headline": h["title"]} for _, h in batch]
+        results = analyzer.analyze_batch(batch_input)
+        if results is None:
+            log.warning("Both LLM providers failed for this batch; leaving items unmarked to retry next run")
+            continue
 
-    # Cap batch size: a single request covering 60+ headlines risks exceeding
-    # even a generous max_tokens, truncating the JSON response mid-array.
-    # Anything bumped this cycle is still new (not yet marked notified) and
-    # gets picked up on the next one.
-    new_items = new_items[: config.MAX_HEADLINES_PER_CYCLE]
-
-    batch_input = [{"headline": h["title"]} for _, h in new_items]
-    results = analyzer.analyze_batch(batch_input)
-    if results is None:
-        log.warning("Both LLM providers failed for this batch; leaving items unmarked to retry next run")
-        return
-
-    for (key, h), analysis in zip(new_items, results):
-        if not dry_run:
-            state.mark_notified(key)
-        if (
-            analysis.get("confidence", 0) >= config.MIN_CONFIDENCE
-            and analysis.get("signal_score", 0) >= config.MIN_SIGNAL_SCORE_NEWS_ONLY
-        ):
-            message = notifier.format_news_alert(h, analysis)
-            notifier.send(message, dry_run=dry_run)
+        for (key, h), analysis in zip(batch, results):
+            if not dry_run:
+                state.mark_notified(key)
+            if (
+                analysis.get("confidence", 0) >= config.MIN_CONFIDENCE
+                and analysis.get("signal_score", 0) >= config.MIN_SIGNAL_SCORE_NEWS_ONLY
+            ):
+                message = notifier.format_news_alert(h, analysis)
+                notifier.send(message, dry_run=dry_run)
 
 
 def main() -> None:
