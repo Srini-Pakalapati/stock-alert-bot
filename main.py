@@ -92,6 +92,12 @@ def handle_general_news(dry_run: bool) -> None:
     if not new_items:
         return
 
+    # Cap batch size: a single request covering 60+ headlines risks exceeding
+    # even a generous max_tokens, truncating the JSON response mid-array.
+    # Anything bumped this cycle is still new (not yet marked notified) and
+    # gets picked up on the next one.
+    new_items = new_items[: config.MAX_HEADLINES_PER_CYCLE]
+
     batch_input = [{"headline": h["title"]} for _, h in new_items]
     results = analyzer.analyze_batch(batch_input)
     if results is None:

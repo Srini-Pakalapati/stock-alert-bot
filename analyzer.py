@@ -75,13 +75,21 @@ def _call_gemini(prompt: str) -> str:
 
 def _call_groq(prompt: str) -> str:
     """Call Groq's free tier (llama-3.3-70b-versatile), used as the fallback
-    provider when Gemini fails or its free quota is exhausted."""
+    provider when Gemini fails or its free quota is exhausted.
+
+    max_tokens is set high and temperature low: a large batch of headlines
+    produces a long JSON array response, and the default max_tokens was
+    observed truncating it mid-response (cutting the JSON off before it
+    could close), which then fails to parse.
+    """
     from groq import Groq
 
     client = Groq(api_key=os.environ["GROQ_API_KEY"])
     completion = client.chat.completions.create(
         model="llama-3.3-70b-versatile",
         messages=[{"role": "user", "content": prompt}],
+        max_tokens=8192,
+        temperature=0.2,
     )
     return completion.choices[0].message.content
 

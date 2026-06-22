@@ -48,13 +48,27 @@ jobs:
         run: python main.py
 
       - name: Commit updated state
+        # Rebases onto the latest origin/main before pushing, since a concurrent
+        # human push (e.g. a code change landing at the same moment) can move
+        # main out from under this run -- a plain `git push` was observed
+        # failing with "[rejected] (fetch first)" in exactly that scenario.
+        # state.db is just a dedup cache, so on an unresolvable conflict we log
+        # and skip rather than failing the whole job over a bookkeeping commit.
         run: |
           git config user.name "stock-alert-bot"
           git config user.email "actions@users.noreply.github.com"
           if [ -f state.db ]; then
             git add state.db
-            git diff --cached --quiet || git commit -m "Update alert state [skip ci]"
-            git push
+            if ! git diff --cached --quiet; then
+              git commit -m "Update alert state [skip ci]"
+              git fetch origin main
+              if git rebase origin/main; then
+                git push origin main || echo "Push failed after rebase - will retry next run"
+              else
+                git rebase --abort
+                echo "Rebase conflict (concurrent state.db change) - skipping this cycle's state commit"
+              fi
+            fi
           else
             echo "No state.db yet (likely outside active trading window) - nothing to commit"
           fi
