@@ -1,0 +1,60 @@
+name: Stock Alert Scan
+
+on:
+  schedule:
+    # Every 15 min, Mon-Fri, all hours (UTC). main.py itself gates on the
+    # actual 6am-8pm US/Eastern active window via config.is_active_window(),
+    # so DST is handled correctly in code rather than brittle UTC cron math.
+    - cron: "*/15 * * * 1-5"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Bypass the trading-hours gate (still sends real alerts) - use for manual test runs"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+# With the mover cap/batching fix a run should take well under a minute, but
+# this guards against any future run still in progress when the next 15-min
+# trigger fires -- runs queue instead of overlapping, avoiding a state.db git
+# push race between two simultaneous runs.
+concurrency:
+  group: stock-alert-scan
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run scan
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          FORCE_RUN: ${{ inputs.force }}
+        run: python main.py
+
+      - name: Commit updated state
+        run: |
+          git config user.name "stock-alert-bot"
+          git config user.email "actions@users.noreply.github.com"
+          if [ -f state.db ]; then
+            git add state.db
+            git diff --cached --quiet || git commit -m "Update alert state [skip ci]"
+            git push
+          else
+            echo "No state.db yet (likely outside active trading window) - nothing to commit"
+          fi
