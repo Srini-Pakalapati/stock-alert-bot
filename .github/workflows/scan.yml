@@ -2,8 +2,8 @@ name: Stock Alert Scan
 
 on:
   schedule:
-    # Every 15 min, Mon-Fri, all hours (UTC). main.py itself gates on actual
-    # US/Eastern pre-market/market/after-hours windows via config.is_active_window(),
+    # Every 15 min, Mon-Fri, all hours (UTC). main.py itself gates on the
+    # actual 6am-8pm US/Eastern active window via config.is_active_window(),
     # so DST is handled correctly in code rather than brittle UTC cron math.
     - cron: "*/15 * * * 1-5"
   workflow_dispatch:

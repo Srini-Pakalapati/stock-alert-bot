@@ -27,8 +27,11 @@ SCREENER_COUNT = 50  # results per screener query
 MAX_MOVERS_PER_CYCLE = 20
 
 # --- Active windows (US/Eastern) ---
-# Pre-market 4:00-9:30, regular 9:30-16:00, after-hours 16:00-20:00. No weekends.
-PRE_MARKET_START = (4, 0)
+# 6am-8pm ET, Mon-Fri. Trimmed from the full 4am pre-market open since 4-6am
+# trading is thin/noisy; 6am still catches most pre-market earnings releases
+# (many companies report 6-8am ET), and 8pm covers after-hours since volume
+# drops off sharply after that.
+PRE_MARKET_START = (6, 0)
 AFTER_HOURS_END = (20, 0)
 
 
