@@ -1,8 +1,8 @@
 # Stock Alert Bot
 
 Scans the market for big price moves and notable news, weighs it against company
-fundamentals, and sends a Telegram alert. Runs entirely on GitHub Actions' free
-tier — no server, no machine of yours needs to stay on.
+fundamentals, and sends a Telegram alert to your phone. Runs entirely on GitHub
+Actions' free tier — no server, no machine of yours needs to stay on.
 
 > **Disclaimer — not investment advice.** This is a heads-up tool, not a
 > prediction or trading system. It will produce false positives and false
