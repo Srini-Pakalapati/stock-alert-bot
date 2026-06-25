@@ -3,16 +3,20 @@ Yahoo alone and can catch stories that aren't tagged to any specific ticker
 (e.g. a Trump statement that never mentions "INTC")."""
 import logging
 import os
-from urllib.parse import quote_plus
 
 import feedparser
 import yfinance as yf
 
 log = logging.getLogger(__name__)
 
-GOOGLE_NEWS_RSS = "https://news.google.com/rss/search?q={query}&hl=en-US&gl=US&ceid=US:en"
+# Topic feed, not a keyword search: this is deliberate. An earlier keyword-based
+# Google News query (e.g. "stock market OR earnings OR Fed OR tariffs OR merger")
+# missed single-company stories whose headline doesn't happen to contain one of
+# those exact words (a Wendy's-specific story, for instance). The Business topic
+# feed surfaces broad market news AND individual-company stories without being
+# filtered by keyword match.
+GOOGLE_NEWS_BUSINESS_RSS = "https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=en-US&gl=US&ceid=US:en"
 YAHOO_GENERAL_RSS = "https://finance.yahoo.com/news/rssindex"
-GENERAL_QUERY = "stock market OR earnings OR Fed OR tariffs OR merger when:1h"
 
 _finnhub_client = None
 
@@ -63,7 +67,7 @@ def get_general_headlines() -> list[dict]:
         log.warning("Yahoo general RSS failed", exc_info=True)
 
     try:
-        feed = feedparser.parse(GOOGLE_NEWS_RSS.format(query=quote_plus(GENERAL_QUERY)))
+        feed = feedparser.parse(GOOGLE_NEWS_BUSINESS_RSS)
         for entry in feed.entries:
             items.append(_normalize(entry.title, entry.link, "google_news"))
     except Exception:

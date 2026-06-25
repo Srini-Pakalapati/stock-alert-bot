@@ -23,10 +23,21 @@ def get_movers() -> list[dict]:
     no fixed watchlist -- whatever the screeners surface and clears the
     relevant threshold is included.
 
+    For the regular session, uses the day's intraday high/low (already
+    present in the screener response, no extra API call) rather than just
+    the current price -- a stock that spiked 10% and reverted to 2% by the
+    time a scan runs would otherwise be invisible, since we'd only ever see
+    its current, already-reverted value. `pct_change` reflects the most
+    extreme move seen today (current vs. day-high vs. day-low, whichever is
+    furthest from zero); `current_pct_change` is the live snapshot for
+    comparison. Note this still depends on the ticker remaining in Yahoo's
+    top-50 current gainers/losers/most-actives lists -- if a move fully
+    reverts enough to drop out of all three, it's still invisible to us.
+
     Returns:
         A deduped list of dicts, each shaped like:
-        {"ticker": "RGTI", "pct_change": -7.2, "session": "regular",
-         "price": 12.34, "prev_close": 13.30}
+        {"ticker": "RGTI", "pct_change": -7.2, "current_pct_change": -2.1,
+         "session": "regular", "price": 12.34, "prev_close": 13.30}
         `session` is one of "regular", "pre-market", "after-hours".
     """
     movers: dict[str, dict] = {}
@@ -41,16 +52,28 @@ def get_movers() -> list[dict]:
 
         for q in quotes:
             ticker = q.get("symbol")
-            pct = q.get("regularMarketChangePercent")
-            if not ticker or pct is None:
+            pct_now = q.get("regularMarketChangePercent")
+            prev_close = q.get("regularMarketPreviousClose")
+            if not ticker or pct_now is None:
                 continue
-            if abs(pct) >= config.INTRADAY_MOVE_PCT:
+
+            candidates = [pct_now]
+            day_high = q.get("regularMarketDayHigh")
+            day_low = q.get("regularMarketDayLow")
+            if day_high is not None and prev_close:
+                candidates.append((day_high - prev_close) / prev_close * 100)
+            if day_low is not None and prev_close:
+                candidates.append((day_low - prev_close) / prev_close * 100)
+            extreme_pct = max(candidates, key=abs)
+
+            if abs(extreme_pct) >= config.INTRADAY_MOVE_PCT:
                 movers[ticker] = {
                     "ticker": ticker,
-                    "pct_change": round(pct, 2),
+                    "pct_change": round(extreme_pct, 2),
+                    "current_pct_change": round(pct_now, 2),
                     "session": "regular",
                     "price": q.get("regularMarketPrice"),
-                    "prev_close": q.get("regularMarketPreviousClose"),
+                    "prev_close": prev_close,
                 }
 
     _add_extended_hours_movers(movers)

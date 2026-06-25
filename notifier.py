@@ -60,7 +60,9 @@ def format_price_alert(
 
     Args:
         mover: one entry from movers.get_movers(), e.g.
-            {"ticker": "RGTI", "pct_change": -7.2, "session": "regular", ...}.
+            {"ticker": "RGTI", "pct_change": -7.2, "current_pct_change": -2.1,
+             "session": "regular", ...}. pct_change is the day's most extreme
+            move; current_pct_change (regular session only) is the live value.
         news_context: the matching analyzer.py result for this mover's most
             recent headline, or None if no headline was found/analyzed.
         fundamentals: the fundamentals.get_fundamentals() result for this
@@ -78,6 +80,14 @@ def format_price_alert(
     rebound_note = "\n⚠️ Potential rebound watch" if movers.is_rebound_watch(pct) else ""
 
     lines = [f"{emoji} {ticker}  {pct:+.1f}% ({session}){rebound_note}"]
+
+    # pct_change is the day's most extreme move (intraday high/low vs. prev
+    # close); current_pct_change is the live snapshot. Surface both when they
+    # differ meaningfully, so a move that already reverted isn't reported as
+    # if it's still happening right now.
+    current_pct = mover.get("current_pct_change")
+    if current_pct is not None and abs(current_pct - pct) >= 1:
+        lines.append(f"(Peaked at {pct:+.1f}% intraday — currently {current_pct:+.1f}%)")
 
     fundamentals = fundamentals or {}
     price = fundamentals.get("current_price") or mover.get("price")
